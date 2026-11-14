@@ -1,16 +1,261 @@
-version: '3.8'
+# Logística Federal — clúster distribuido políglota (AE4)
+#
+#   PostgreSQL (CP)  pg-centro (primario) + pg-centro-replica (standby síncrono)
+#                    pg-norte / pg-sur    (fragmentos regionales autónomos)
+#   Cassandra  (AP)  cassandra-norte / cassandra-centro / cassandra-sur (RF = 3)
+#   Analítica        pg-dw (constelación de hechos) + jupyter
+name: logistica-federal
+
+x-pg-oltp: &pg-oltp
+  build: ./docker/postgres
+  image: logistica-federal/postgres:18
+  restart: unless-stopped
+  healthcheck:
+    # Por TCP a propósito: durante la inicialización el servidor temporal solo
+    # escucha en el socket Unix, así el nodo no figura sano antes de tiempo.
+    test: ["CMD-SHELL", "pg_isready -h 127.0.0.1 -U $$POSTGRES_USER -d $$POSTGRES_DB"]
+    interval: 5s
+    timeout: 5s
+    retries: 30
+    start_period: 20s
+
+x-pg-env: &pg-env
+  POSTGRES_USER: ${POSTGRES_USER}
+  POSTGRES_PASSWORD: ${POSTGRES_PASSWORD}
+  POSTGRES_DB: ${POSTGRES_DB}
+  REPLICATION_PASSWORD: ${REPLICATION_PASSWORD}
+
+x-cassandra: &cassandra
+  image: cassandra:5.0
+  restart: unless-stopped
+  healthcheck:
+    test: ["CMD-SHELL", "cqlsh -e 'SELECT now() FROM system.local' > /dev/null 2>&1"]
+    interval: 15s
+    timeout: 10s
+    retries: 40
+    start_period: 60s
+
+x-cassandra-env: &cassandra-env
+  CASSANDRA_CLUSTER_NAME: logistica-federal
+  CASSANDRA_SEEDS: cassandra-centro
+  CASSANDRA_DC: logistica
+  CASSANDRA_ENDPOINT_SNITCH: GossipingPropertyFileSnitch
+  # Heap acotado para que los tres nodos entren en una notebook.
+  MAX_HEAP_SIZE: 512M
+  HEAP_NEWSIZE: 128M
+
 services:
-  db:
-    image: postgres:19
-    container_name: mi_postgres
+  # ---------------------------------------------------------------- PostgreSQL
+  pg-centro:
+    <<: *pg-oltp
     environment:
-      POSTGRES_USER: usuario
-      POSTGRES_PASSWORD: password_seguro
-      POSTGRES_DB: base_datos_distribuida
-    ports:
-      - "5432:5432"
+      <<: *pg-env
+      CLUSTER_BACKUP: centro
     volumes:
-      - pgdata:/var/lib/postgresql/data
+      - pg-centro-data:/var/lib/postgresql
+      - backups:/backups
+      - ./postgres/conf:/etc/postgresql/conf.d:ro
+      - ./postgres:/sql:ro
+      - ./postgres/centro/00_init.sh:/docker-entrypoint-initdb.d/00_init.sh:ro
+    ports:
+      - "127.0.0.1:${PG_CENTRO_PORT:-5432}:5432"
+    networks:
+      red: {}
+
+  pg-centro-replica:
+    <<: *pg-oltp
+    entrypoint: ["iniciar_standby"]
+    command: ["postgres"]
+    environment:
+      <<: *pg-env
+      # Mismo destino de archivado que el primario: tras un failover la
+      # historia de WAL continúa en el mismo repositorio.
+      CLUSTER_BACKUP: centro
+      PRIMARIO: pg-centro
+    volumes:
+      - pg-centro-replica-data:/var/lib/postgresql
+      - backups:/backups
+      - ./postgres/conf:/etc/postgresql/conf.d:ro
+    depends_on:
+      pg-centro:
+        condition: service_healthy
+    networks:
+      red: {}
+
+  pg-norte:
+    <<: *pg-oltp
+    environment:
+      <<: *pg-env
+      REGION: norte
+      CLUSTER_BACKUP: norte
+    volumes:
+      - pg-norte-data:/var/lib/postgresql
+      - backups:/backups
+      - ./postgres/conf:/etc/postgresql/conf.d:ro
+      - ./postgres:/sql:ro
+      - ./postgres/regional/00_init.sh:/docker-entrypoint-initdb.d/00_init.sh:ro
+    depends_on:
+      pg-centro:
+        condition: service_healthy
+    networks:
+      red:
+        # IP fija: scripts/particion_red.sh lo desconecta y reconecta.
+        ipv4_address: 10.77.0.11
+
+  pg-sur:
+    <<: *pg-oltp
+    environment:
+      <<: *pg-env
+      REGION: sur
+      CLUSTER_BACKUP: sur
+    volumes:
+      - pg-sur-data:/var/lib/postgresql
+      - backups:/backups
+      - ./postgres/conf:/etc/postgresql/conf.d:ro
+      - ./postgres:/sql:ro
+      - ./postgres/regional/00_init.sh:/docker-entrypoint-initdb.d/00_init.sh:ro
+    depends_on:
+      pg-centro:
+        condition: service_healthy
+    networks:
+      red: {}
+
+  pg-dw:
+    <<: *pg-oltp
+    environment:
+      POSTGRES_USER: ${POSTGRES_USER}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD}
+      POSTGRES_DB: ${DW_DB}
+    volumes:
+      - pg-dw-data:/var/lib/postgresql
+      - ./postgres/dw/01_constelacion.sql:/docker-entrypoint-initdb.d/01_constelacion.sql:ro
+    ports:
+      - "127.0.0.1:${PG_DW_PORT:-5433}:5432"
+    networks:
+      red: {}
+
+  # Instancia efímera donde scripts/restaurar_pitr.sh reconstruye un backup.
+  pg-restore:
+    <<: *pg-oltp
+    profiles: ["restore"]
+    restart: "no"
+    environment:
+      <<: *pg-env
+    volumes:
+      - pg-restore-data:/var/lib/postgresql
+      - backups:/backups
+      # Solo la configuración común: una restauración no debe archivar WAL.
+      - ./postgres/conf/10-comun.conf:/etc/postgresql/conf.d/10-comun.conf:ro
+    networks:
+      red: {}
+
+  # ----------------------------------------------------------------- Cassandra
+  # Arranque en cadena (centro -> norte -> sur): Cassandra no admite que dos
+  # nodos nuevos se incorporen al anillo al mismo tiempo.
+  cassandra-centro:
+    <<: *cassandra
+    environment:
+      <<: *cassandra-env
+      CASSANDRA_RACK: centro
+    volumes:
+      - cassandra-centro-data:/var/lib/cassandra
+      - backups:/backups
+    ports:
+      - "127.0.0.1:${CASSANDRA_PORT:-9042}:9042"
+    networks:
+      red:
+        ipv4_address: 10.77.0.21
+
+  cassandra-norte:
+    <<: *cassandra
+    environment:
+      <<: *cassandra-env
+      CASSANDRA_RACK: norte
+    volumes:
+      - cassandra-norte-data:/var/lib/cassandra
+      - backups:/backups
+    depends_on:
+      cassandra-centro:
+        condition: service_healthy
+    networks:
+      red:
+        ipv4_address: 10.77.0.22
+
+  cassandra-sur:
+    <<: *cassandra
+    environment:
+      <<: *cassandra-env
+      CASSANDRA_RACK: sur
+    volumes:
+      - cassandra-sur-data:/var/lib/cassandra
+      - backups:/backups
+    depends_on:
+      cassandra-norte:
+        condition: service_healthy
+    networks:
+      red:
+        ipv4_address: 10.77.0.23
+
+  cassandra-init:
+    image: cassandra:5.0
+    restart: "no"
+    command: ["cqlsh", "cassandra-centro", "-f", "/cql/01_keyspace_tablas.cql"]
+    volumes:
+      - ./cassandra:/cql:ro
+    depends_on:
+      cassandra-sur:
+        condition: service_healthy
+    networks:
+      red: {}
+
+  # ------------------------------------------------------------------- Jupyter
+  jupyter:
+    build: ./docker/jupyter
+    image: logistica-federal/jupyter:1
+    restart: unless-stopped
+    working_dir: /home/jovyan/work
+    environment:
+      JUPYTER_TOKEN: ${JUPYTER_TOKEN}
+      PYTHONPATH: /home/jovyan/work/src
+      PG_USER: ${POSTGRES_USER}
+      PG_PASSWORD: ${POSTGRES_PASSWORD}
+      PG_DB: ${POSTGRES_DB}
+      DW_DB: ${DW_DB}
+    volumes:
+      - .:/home/jovyan/work
+    ports:
+      - "127.0.0.1:${JUPYTER_PORT:-8888}:8888"
+    depends_on:
+      pg-centro-replica:
+        condition: service_healthy
+      pg-norte:
+        condition: service_healthy
+      pg-sur:
+        condition: service_healthy
+      pg-dw:
+        condition: service_healthy
+      cassandra-init:
+        condition: service_completed_successfully
+    networks:
+      red: {}
+
+networks:
+  red:
+    name: logistica_red
+    ipam:
+      config:
+        - subnet: 10.77.0.0/24
+          # Las IP dinámicas salen de la mitad alta; las fijas usan la baja.
+          ip_range: 10.77.0.128/25
 
 volumes:
-  pgdata:
+  pg-centro-data:
+  pg-centro-replica-data:
+  pg-norte-data:
+  pg-sur-data:
+  pg-dw-data:
+  pg-restore-data:
+  cassandra-centro-data:
+  cassandra-norte-data:
+  cassandra-sur-data:
+  backups:
