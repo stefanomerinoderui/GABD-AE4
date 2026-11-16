@@ -100,7 +100,7 @@ def _cargar_entregas(dw, central, geografia: dict, sucursal_geo: dict) -> int:
         VALUES (%(id)s, %(tiempo_id)s, %(geo_origen)s, %(geo_destino)s, %(vehiculo_id)s,
                 %(hora_despacho)s, %(peso_kg)s, %(distancia_km)s, %(lluvia_mm)s,
                 %(indice_trafico)s, %(horas_entrega)s, %(monto)s)
-        ON CONFLICT (envio_id) DO UPDATE SET horas_entrega = EXCLUDED.horas_entrega,
+        ON CONFLICT (envio_id, tiempo_id) DO UPDATE SET horas_entrega = EXCLUDED.horas_entrega,
             monto = EXCLUDED.monto
         """,
         parametros,
@@ -133,7 +133,7 @@ def _cargar_incidentes(dw, sucursal_geo: dict, desde: date, hasta: date) -> int:
             (incidente_id, tiempo_id, geografia_id, vehiculo_id, tipo, demora_min, lat, lon)
         VALUES (%(id_incidente)s, %(tiempo_id)s, %(geografia_id)s, %(vehiculo_id)s,
                 %(tipo)s, %(demora_min)s, %(lat)s, %(lon)s)
-        ON CONFLICT (incidente_id) DO NOTHING
+        ON CONFLICT (incidente_id, tiempo_id) DO NOTHING
         """,
         [{**f, "geografia_id": sucursal_geo[f["sucursal_id"]]} for f in filas],
     )

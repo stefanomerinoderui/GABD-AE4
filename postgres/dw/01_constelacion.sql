@@ -33,9 +33,16 @@ CREATE TABLE dim_vehiculo (
     region_base  text NOT NULL
 );
 
+-- Las tablas de hechos crecen sin límite y se consultan por período: se particionan
+-- por RANGO sobre tiempo_id (AAAAMMDD), una partición por año. Beneficios: poda de
+-- particiones en consultas por año y retiro de un año con DETACH/DROP. La clave de
+-- partición debe formar parte de la PK. La partición DEFAULT evita rechazar cargas
+-- fuera de rango (hay que vigilarla: si recibe filas, falta crear la partición anual).
+-- No se usa HASH: ningún acceso puntual masivo justifica repartir por azar.
+
 -- Granularidad: un envío entregado.
 CREATE TABLE hechos_entregas (
-    envio_id             uuid PRIMARY KEY,          -- dimensión degenerada
+    envio_id             uuid NOT NULL,             -- dimensión degenerada
     tiempo_id            integer NOT NULL REFERENCES dim_tiempo (tiempo_id),
     geografia_origen_id  integer NOT NULL REFERENCES dim_geografia (geografia_id),
     geografia_destino_id integer NOT NULL REFERENCES dim_geografia (geografia_id),
@@ -46,20 +53,32 @@ CREATE TABLE hechos_entregas (
     lluvia_mm            numeric(5, 1) NOT NULL,
     indice_trafico       numeric(3, 2) NOT NULL,
     horas_entrega        numeric(8, 2) NOT NULL,
-    monto                numeric(12, 2)
-);
+    monto                numeric(12, 2),
+    PRIMARY KEY (envio_id, tiempo_id)
+) PARTITION BY RANGE (tiempo_id);
 
 -- Granularidad: un incidente reportado en ruta.
 CREATE TABLE hechos_incidentes (
-    incidente_id uuid PRIMARY KEY,                  -- dimensión degenerada
+    incidente_id uuid NOT NULL,                     -- dimensión degenerada
     tiempo_id    integer NOT NULL REFERENCES dim_tiempo (tiempo_id),
     geografia_id integer NOT NULL REFERENCES dim_geografia (geografia_id),
     vehiculo_id  integer REFERENCES dim_vehiculo (vehiculo_id),
     tipo         text NOT NULL,
     demora_min   integer NOT NULL,
     lat          double precision NOT NULL,
-    lon          double precision NOT NULL
-);
+    lon          double precision NOT NULL,
+    PRIMARY KEY (incidente_id, tiempo_id)
+) PARTITION BY RANGE (tiempo_id);
+
+CREATE TABLE hechos_entregas_2025 PARTITION OF hechos_entregas FOR VALUES FROM (20250101) TO (20260101);
+CREATE TABLE hechos_entregas_2026 PARTITION OF hechos_entregas FOR VALUES FROM (20260101) TO (20270101);
+CREATE TABLE hechos_entregas_2027 PARTITION OF hechos_entregas FOR VALUES FROM (20270101) TO (20280101);
+CREATE TABLE hechos_entregas_otros PARTITION OF hechos_entregas DEFAULT;
+
+CREATE TABLE hechos_incidentes_2025 PARTITION OF hechos_incidentes FOR VALUES FROM (20250101) TO (20260101);
+CREATE TABLE hechos_incidentes_2026 PARTITION OF hechos_incidentes FOR VALUES FROM (20260101) TO (20270101);
+CREATE TABLE hechos_incidentes_2027 PARTITION OF hechos_incidentes FOR VALUES FROM (20270101) TO (20280101);
+CREATE TABLE hechos_incidentes_otros PARTITION OF hechos_incidentes DEFAULT;
 
 -- Las consultas OLAP filtran y agrupan por las claves de dimensión.
 CREATE INDEX idx_entregas_tiempo ON hechos_entregas (tiempo_id);
