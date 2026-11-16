@@ -79,3 +79,26 @@ def test_replicacion_sincrona_hacia_el_standby():
     assert [f["sync_state"] for f in estado] and all(
         f["sync_state"] in ("sync", "quorum") for f in estado
     )
+
+
+def test_hechos_del_dw_estan_particionados_por_rango_con_poda(datos_sembrados):
+    with conectar_pg("dw") as conexion:
+        particiones = {
+            f["relname"]
+            for f in conexion.execute(
+                """
+                SELECT c.relname FROM pg_inherits i
+                JOIN pg_class c ON c.oid = i.inhrelid
+                WHERE i.inhparent = 'hechos_entregas'::regclass
+                """
+            )
+        }
+        plan = "\n".join(
+            f["QUERY PLAN"]
+            for f in conexion.execute(
+                "EXPLAIN SELECT * FROM hechos_entregas WHERE tiempo_id BETWEEN 20260101 AND 20261231"
+            )
+        )
+    assert {"hechos_entregas_2025", "hechos_entregas_2026", "hechos_entregas_otros"} <= particiones
+    assert "hechos_entregas_2026" in plan
+    assert "hechos_entregas_2025" not in plan
