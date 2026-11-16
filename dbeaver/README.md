@@ -11,11 +11,30 @@ no la soporta; use el notebook `02` o `cqlsh` (`docker compose exec cassandra-ce
    particiones del DW, vuelva a ejecutar `python tareas.py up` (puertos) o `python tareas.py reset --si` (DW).
 2. DBeaver instalado. Los puertos están publicados solo en `127.0.0.1`.
 
-## Importar el proyecto
+## Cargar conexiones y scripts
 
-*Archivo → Abrir archivo…* no sirve para esto; use **Archivo → Importar → DBeaver → Project** y elija
-esta carpeta (`dbeaver/`). Alternativa: *Archivo → Cambiar workspace* apuntando a `dbeaver/`.
-Verá la carpeta de conexiones **Logística Federal** y, en *Scripts*, los cinco archivos `.sql`.
+Esta carpeta es el contenido de un proyecto de DBeaver, no un archivo `.dbp` (el asistente
+*Importar → DBeaver → Project* solo acepta ese formato). Se carga copiando los archivos al proyecto
+`General` del workspace:
+
+1. Cierre DBeaver.
+2. Copie `dbeaver/.dbeaver/data-sources.json` a `<workspace>/General/.dbeaver/` (si ya tiene conexiones,
+   no lo sobrescriba: abra ambos archivos y agregue las cuatro entradas de `connections`).
+3. Copie `dbeaver/Scripts/*.sql` a `<workspace>/General/Scripts/`.
+4. Abra DBeaver: aparece la carpeta de conexiones **Logística Federal** y los scripts en *Scripts*.
+
+Ubicación del workspace según el sistema:
+
+| Sistema | `<workspace>` |
+|---|---|
+| Linux | `~/.local/share/DBeaverData/workspace6` |
+| Windows | `%APPDATA%\DBeaverData\workspace6` |
+| macOS | `~/Library/DBeaverData/workspace6` |
+
+(DBeaver instalado por Flatpak o Snap usa una ruta distinta; en *Archivo → Cambiar workspace* se ve la actual.)
+
+Alternativa sin copiar nada: cree las cuatro conexiones a mano con la tabla de abajo (*Nueva conexión →
+PostgreSQL*) y abra los scripts con *Archivo → Abrir archivo…*.
 
 ## Conexiones
 
