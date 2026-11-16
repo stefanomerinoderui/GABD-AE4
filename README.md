@@ -27,7 +27,7 @@ ni bash en el host, por lo que funciona igual en Linux, macOS y Windows.
 ```bash
 python tareas.py up      # crea .env, construye imágenes y levanta todo (~3 min la primera vez)
 python tareas.py seed    # datos sintéticos (semilla fija) + carga del data warehouse
-python tareas.py test    # 41 tests (29 de integración contra el clúster + 12 unitarios)
+python tareas.py test    # 48 tests (33 de integración contra el clúster + 15 unitarios)
 ```
 
 En Windows use `py tareas.py ...` en lugar de `python tareas.py ...`. `python tareas.py` sin argumentos
@@ -91,6 +91,8 @@ el tiempo se estima como copia del completo + combinación de incrementales + re
 | Índices y `EXPLAIN (ANALYZE, BUFFERS)` | [`03_indices_explain.ipynb`](notebooks/03_indices_explain.ipynb) · [`postgres/comun/03_indices.sql`](postgres/comun/03_indices.sql) · [`indices.py`](src/logistica/indices.py): B-tree compuesto, índice parcial y BRIN; mejora de lecturas ×10–×300 y sobrecosto de escritura medido. |
 | OLAP: constelación de hechos | [`04_olap.ipynb`](notebooks/04_olap.ipynb) · [`postgres/dw/01_constelacion.sql`](postgres/dw/01_constelacion.sql) · [`etl.py`](src/logistica/etl.py): slice, dice, `ROLLUP`, `CUBE`, comparación interanual y drill-across. |
 | Minería (CRISP-DM) | [`05_mineria_kdd.ipynb`](notebooks/05_mineria_kdd.ipynb) · [`mineria.py`](src/logistica/mineria.py): regresión lineal para ETA, DBSCAN (haversine) y K-Means sobre incidentes. |
+| Vista materializada | [`postgres/centro/05_resumen_envios.sql`](postgres/centro/05_resumen_envios.sql) · [`resumen.py`](src/logistica/resumen.py): `resumen_envios_mensual` (envíos por región y mes). Refresco: `python tareas.py refrescar-resumen` con `REFRESH MATERIALIZED VIEW CONCURRENTLY` (índice único `(region, mes)` + vista poblada; la primera vez es completo). Política cada 15 min en [`operaciones/programacion.md`](operaciones/programacion.md). |
+| Particionamiento | `envios` ya es **LIST** por región (localidad y autonomía; sin subparticionar por rango porque las particiones foráneas no admiten PK global). Las tablas de hechos del DW usan **RANGE** anual sobre `tiempo_id` con poda de particiones ([`01_constelacion.sql`](postgres/dw/01_constelacion.sql)). **HASH** no se aplica: ningún acceso puntual masivo lo justifica. Un DW creado antes de este cambio requiere `python tareas.py reset --si`. |
 
 Los datos sintéticos incluyen señal deliberada (zonas críticas, mejora de la región Sur en 2026) para
 que cada análisis tenga una respuesta verificable.
