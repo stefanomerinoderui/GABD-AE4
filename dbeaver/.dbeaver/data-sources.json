@@ -1,0 +1,71 @@
+{
+	"folders": {
+		"Logística Federal": {}
+	},
+	"connections": {
+		"lf-centro": {
+			"provider": "postgresql",
+			"driver": "postgres-jdbc",
+			"name": "Central (pg-centro)",
+			"save-password": false,
+			"folder": "Logística Federal",
+			"configuration": {
+				"host": "127.0.0.1",
+				"port": "5432",
+				"database": "logistica",
+				"url": "jdbc:postgresql://127.0.0.1:5432/logistica",
+				"type": "dev",
+				"auth-model": "native",
+				"user": "logistica"
+			}
+		},
+		"lf-norte": {
+			"provider": "postgresql",
+			"driver": "postgres-jdbc",
+			"name": "Norte (pg-norte)",
+			"save-password": false,
+			"folder": "Logística Federal",
+			"configuration": {
+				"host": "127.0.0.1",
+				"port": "5434",
+				"database": "logistica",
+				"url": "jdbc:postgresql://127.0.0.1:5434/logistica",
+				"type": "dev",
+				"auth-model": "native",
+				"user": "logistica"
+			}
+		},
+		"lf-sur": {
+			"provider": "postgresql",
+			"driver": "postgres-jdbc",
+			"name": "Sur (pg-sur)",
+			"save-password": false,
+			"folder": "Logística Federal",
+			"configuration": {
+				"host": "127.0.0.1",
+				"port": "5435",
+				"database": "logistica",
+				"url": "jdbc:postgresql://127.0.0.1:5435/logistica",
+				"type": "dev",
+				"auth-model": "native",
+				"user": "logistica"
+			}
+		},
+		"lf-dw": {
+			"provider": "postgresql",
+			"driver": "postgres-jdbc",
+			"name": "Data warehouse (pg-dw)",
+			"save-password": false,
+			"folder": "Logística Federal",
+			"configuration": {
+				"host": "127.0.0.1",
+				"port": "5433",
+				"database": "dw",
+				"url": "jdbc:postgresql://127.0.0.1:5433/dw",
+				"type": "dev",
+				"auth-model": "native",
+				"user": "logistica"
+			}
+		}
+	}
+}
