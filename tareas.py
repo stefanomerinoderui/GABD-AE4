@@ -26,11 +26,13 @@ VERSION_MINIMA = (3, 10)
 CODIGO_SEED = """
 import logging
 logging.basicConfig(level=logging.INFO)
-from logistica import etl, semilla
+from logistica import etl, resumen, semilla
 print(semilla.sembrar(reiniciar=True))
 print(etl.ejecutar_etl())
+print(resumen.refrescar())
 """
 CODIGO_ETL = "from logistica import etl; print(etl.ejecutar_etl())"
+CODIGO_RESUMEN = "from logistica import resumen; print(resumen.refrescar())"
 
 
 def asegurar_env() -> None:
@@ -66,6 +68,10 @@ def cmd_seed(_args) -> None:
 
 def cmd_etl(_args) -> None:
     en_contenedor("jupyter", "python", "-c", CODIGO_ETL)
+
+
+def cmd_refrescar_resumen(_args) -> None:
+    en_contenedor("jupyter", "python", "-c", CODIGO_RESUMEN)
 
 
 def cmd_test(_args) -> int:
@@ -123,6 +129,8 @@ COMANDOS = [
      [(("--si",), {"action": "store_true", "help": "no pedir confirmación"})]),
     ("seed", cmd_seed, "Carga datos sintéticos (reemplaza los existentes) y el data warehouse", []),
     ("etl", cmd_etl, "Recarga el data warehouse", []),
+    ("refrescar-resumen", cmd_refrescar_resumen,
+     "Fase 3: refresca la vista materializada de envíos (CONCURRENTLY si es posible)", []),
     ("test", cmd_test, "Tests de integración contra el clúster", []),
     ("lint", cmd_lint, "ruff + shellcheck (si están instalados) + validación de compose", []),
     ("notebooks", cmd_notebooks, "Ejecuta los notebooks de punta a punta (sin guardar salidas)", []),
